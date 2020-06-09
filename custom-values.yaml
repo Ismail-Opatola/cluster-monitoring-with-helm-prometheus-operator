@@ -1,0 +1,121 @@
+# Define persistent storage for Prometheus (PVC)
+prometheus:
+  prometheusSpec:
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          storageClassName: do-block-storage
+          resources:
+            requests:
+              storage: 5Gi
+
+# Define persistent storage for Grafana (PVC)
+grafana:
+  # Set password for Grafana admin user
+  adminPassword: _@testing123
+  persistence:
+    enabled: true
+    storageClassName: do-block-storage
+    accessModes: ["ReadWriteOnce"]
+    size: 5Gi
+
+# Define persistent storage for Alertmanager (PVC)
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          storageClassName: do-block-storage
+          resources:
+            requests:
+              storage: 5Gi
+
+# Change default node-exporter port
+prometheus-node-exporter:
+  service:
+    port: 30206
+    targetPort: 30206
+
+# Disable Etcd metrics
+kubeEtcd:
+  enabled: false
+
+# Disable Controller metrics
+kubeControllerManager:
+  enabled: false
+
+# Disable Scheduler metrics
+kubeScheduler:
+  enabled: false
+# The following custom values above, would enable persistentstorage for the Prometheus, Grafana, and Alertmananger components, and disable monitoring for Kubernetes control plane components not exposed on DigitalOcean Kubernetes:
+# In this file, we override some of the default values packaged with the chart in its values.yaml file.
+# We first enable persistent storage for Prometheus, Grafana, and Alertmanager so that their data persists across Pod restarts. Behind the scenes, this defines a 5 Gi Persistent Volume Claim (PVC) for each component, using the DigitalOcean Block Storage storage class. Youshould modify the size of these PVCs to suit your monitoring storage needs. To learn more about PVCs, consult Persistent Volumes from the official Kubernetes docs.
+
+# Next, replace your_admin_password with a secure password that you’ll use to log in to the Grafana metrics dashboard with the admin user. We’ll then configure a different port for node-exporter. Node-exporter runs on each Kubernetes node and provides OS and hardware metrics to Prometheus. We must change its default port to get around the DigitalOcean Kubernetes firewall defaults, which will block port 9100 butallow ports in the range 30000-32767. Alternatively, you can configure a custom firewall rule for node-exporter. To learn how, consult How to Configure Firewall Rules from the official DigitalOcean Cloud Firewallsdocs.
+
+# Finally, we’ll disable metrics collection for three Kubernetes control plane components that do not expose metrics on DigitalOcean Kubernetes: the Kubernetes Scheduler and Controller Manager, and etcd cluster datastore.
+
+# To see the full list of configurable parameters for the prometheusoperator chart, consult the Configuration section from the chart repo README or the default values file.When you’re done editing, save and close the file. We can now install the chart using Helm.
+
+# install
+# $ helm install --namespace monitoring --name doks-cluster-monitoring -f custom-values.yaml stable/prometheus-operator
+
+# Here we run helm install and install all components into the monitoring namespace, which we create at the same time. This allows us to cleanly separate the monitoring stack from the rest of the Kubernetes cluster. We name the Helm release doks-cluster-monitoring and pass in the custom values file we created in Step 1. Finally, we specify that we’d like to install the prometheus-operator chart from the Helm stable directory.
+
+# Following the note in the helm install output, check the status of the release’s Pods using kubectl get pods:
+# $ kubectl --namespace monitoring get pods -l "release=doks-cluster-monitoring"
+
+# Step 3 — Accessing Grafana and Exploring Metrics Data
+
+# The prometheus-operator Helm chart exposes Grafana as a ClusterIP Service, which means that it’s only accessible via a clusterinternal IP address. To access Grafana outside of your Kubernetes cluster, you can either use `kubectl patch` to update the Service in place to a public-facing type like `NodePort` or `LoadBalancer`, or `kubectl port-forward` to forward a local port to a Grafana Pod port.
+
+# In this tutorial we’ll forward ports, but to learn more about `kubectl patch` and Kubernetes Service types, you can consult [Update API Objects in Place Using kubectl patch] - https://kubernetes.io/docs/tasks/run-application/update-api-object-kubectl-patch/ and [Services] from the official Kubernetes docs.
+
+# Begin by listing running Services in the monitoring namespace:
+# $ kubectl get svc -n monitoring
+
+# We are going to forward local port 8000 to port 80 of the dokscluster-monitoring-grafana Service, which will in turn forward to port 3000 of a running Grafana Pod. These Service and Pod ports are configured in the stable/grafana Helm chart values file:
+# $ kubectl port-forward -n monitoring svc/doks-cluster-monitoring-grafana 8000:80
+
+# Describing each dashboard and how to use it to visualize your cluster’s metrics data goes beyond the scope of this tutorial. To learn more about the USE method for analyzing a system’s performance, you can consult Brendan Gregg’s [http://www.brendangregg.com/usemethod.html] - The Utilization Saturation and Errors (USE) Method page. Google’s SRE Book is another helpful resource, in particular
+# Chapter 6: [https://landing.google.com/sre/sre-book/chapters/monitoring-distributed-systems/] - Monitoring Distributed Systems. To learn how to build your own Grafana dashboards, check out Grafana’s Getting Started page.
+
+# In the next step, we’ll follow a similar process to connect to and explore the Prometheus monitoring system.
+
+# Step 4 — Accessing Prometheus and Alertmanager
+
+# To connect to the Prometheus Pods, we once again have to use `kubectl port-forward` to forward a local port. If you’re done exploring Grafana, you can close the port-forward tunnel by hitting `CTRL-C`. Alternatively you can open a new shell and port-forward connection.
+
+# Begin by listing running Services in the `monitoring` namespace:
+# $ kubectl get svc -n monitoring
+
+# We are going to forward local port 9090 to port 9090 of the dokscluster-monitoring-pr-prometheus Service:
+# $ kubectl port-forward -n monitoring svc/doks-cluster-monitoring-pr-prometheus 9090:9090
+
+# [EXTRA - NOTE]
+# Run: helm ls --all doks-cluster-monitoring; to check the status of the release
+# Or run: helm del --purge doks-cluster-monitoring; to delete it.
+
+# [if error on reinstallment try run:]
+# kubectl get crd -A; view all monitoring CRDs
+# kubectl delete crd <enter_crd_name>
+# helm install --namespace monitoring --name <enter_a_name> -f custom-values.yaml stable/prometheus-operator;
+# example -
+# helm install --namespace monitoring --name doks-cluster-monitoring -f custom-values.yaml stable/prometheus-operator
+
+# We’ll follow a similar process to connect to AlertManager, which manages Alerts generated by Prometheus. You can explore these Alerts by clicking into Alerts in the Prometheus top navigation bar.
+# To connect to the Alertmanager Pods, we will once again use `kubectl port-forward` to forward a local port. If you’re done exploring Prometheus, you can close the port-forward tunnel by hitting CTRL-C.
+
+# Alternatively you can open a new shell and port-forward connection.
+# Begin by listing running Services in the monitoring namespace:
+# $ kubectl get svc -n monitoring
+
+# We are going to forward local port 9093 to port 9093 of the dokscluster-monitoring-pr-alertmanager Service.
+
+# $ kubectl port-forward -n monitoring svc/dokscluster-monitoring-pr-alertmanager 9093:9093
+
+# Visit http://localhost:9093 in your web browser
+
+# The prometheus-operator chart helps you get cluster monitoring up and running quickly using Helm. You may wish to build, deploy, and configure Prometheus Operator manually. To do so, consult the [https://github.com/coreos/prometheus-operator] Prometheus Operator and [file:///tmp/calibre_4.9.1_tmp_4WUNfk/_TYIoV_pdf_out/EPUB/text/%3Chttps://github.com/coreos/kube-prometheus] kube-prometheus GitHub repos
